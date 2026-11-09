@@ -1,0 +1,9 @@
+PROJECT_NAME           = "Videogioco Survival Faro"
+OUTPUT_DIRECTORY       = doc
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+GENERATE_LATEX         = NO
+GENERATE_HTML          = YES
+INPUT                  = .
+FILE_PATTERNS          = *.c *.h
