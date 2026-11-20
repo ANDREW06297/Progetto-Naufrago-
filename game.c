@@ -5,25 +5,44 @@
 #include "game.h"
 #include "map.h"
 #include "utils.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/** @brief Contatore del giorno corrente della partita (da 1 a 30). */
 static int days = 1;
+
+/** @brief Puntatore alla squadra attiva dei naufraghi (NULL se nessuna partita e' attiva). */
 static Squad* team = NULL;
+
+/** @brief Magazzino centrale delle risorse e delle strutture dell'accampamento. */
 static Warehouse warehouse;
+
+/** @brief Configurazione personalizzata dei parametri modificabili dal menu trucchi. */
 static TrickSettings trick_settings = {10, 4, 8, 8, 0, 0, false, false};
 
+/** @brief Codice segreto a 4 cifre (1-9) generato per la missione finale al Faro. */
 static int secret_code_mastermind[4];
-static bool tricks_unlocked = false;
-static bool game_won = false; // Flag per evitare il falso Game Over
 
+/** @brief Flag che indica se il menu trucchi e' stato sbloccato tramite codice Morse. */
+static bool tricks_unlocked = false;
+
+/** @brief Flag che segnala l'avvenuta vittoria al Faro ed evita il falso Game Over. */
+static bool game_won = false;
+
+/**
+ * @brief Stampa un avviso quando tutti e tre gli oggetti chiave del Faro sono stati raccolti.
+ */
 static void check_key_items_message(void) {
     if (warehouse.has_oil && warehouse.has_lens && warehouse.has_key) {
         printf("\n*** AVETE TUTTO IL NECESSARIO PER RIACCENDERE IL FARO! ***\n");
     }
 }
 
+/**
+ * @brief Inizializza una nuova partita resettando squadra, magazzino, mappa, codice segreto e trucchi attivi.
+ */
 static void setup_new_game(void) {
     if (team) {
         squad_cleanup(team);
@@ -73,6 +92,9 @@ static void setup_new_game(void) {
     }
 }
 
+/**
+ * @brief Gestisce la fase serale: consumo di cibo e acqua, danni da stenti, bonus strutture e avanzamento giorno.
+ */
 static void evening_phase(void) {
     printf("\n--- FASE SERALE (Giorno %d) ---\n", days);
     Survivor* current = team->head;
@@ -109,6 +131,14 @@ static void evening_phase(void) {
     days++;
 }
 
+/**
+ * @brief Risolve un combattimento a turni tramite lancio di dado tra un esploratore e un nemico.
+ * @param explorer Puntatore al naufrago impegnato nel combattimento.
+ * @param min_fatal Soglia minima da superare strettamente col dado d6 per sconfiggere il nemico.
+ * @param damage Punti salute persi dal naufrago a ogni lancio fallito.
+ * @param enemy_name Nome descrittivo del nemico affrontato.
+ * @return true se il nemico viene sconfitto, false se il naufrago muore o ha HP <= 0.
+ */
 static bool combat_encounter(Survivor* explorer, int min_fatal, int damage, const char* enemy_name) {
     printf("\n--- COMBATTIMENTO: %s ---\n", enemy_name);
     while (explorer->hp > 0) {
@@ -133,6 +163,9 @@ static bool combat_encounter(Survivor* explorer, int min_fatal, int damage, cons
     return false;
 }
 
+/**
+ * @brief Gestisce la spedizione sull'isola di un naufrago con almeno 3 HP, gli eventi delle celle e la missione finale.
+ */
 static void do_expedition(void) {
     if (squad_is_empty(team)) return;
 
@@ -174,7 +207,14 @@ static void do_expedition(void) {
         
         char line[64];
         if (!fgets(line, sizeof(line), stdin)) exit(0);
-        char dir = line[0];
+
+        if (line[0] == '\n' || line[1] != '\n') {
+            printf("Input non valido!\n");
+            printf("Premi INVIO per riprovare..."); utils_wait_enter();
+            continue;
+        }
+
+        char dir = (char)tolower((unsigned char)line[0]);
 
         if (dir == 'r') {
             printf("Rientro anticipato.\n");
@@ -391,6 +431,9 @@ static void do_expedition(void) {
     }
 }
 
+/**
+ * @brief Fa raccogliere risorse intorno all'accampamento a tutti i naufraghi con almeno 3 HP e avvia la fase serale.
+ */
 static void do_gather(void) {
     if (squad_is_empty(team)) return;
     Survivor* curr = team->head;
@@ -421,6 +464,9 @@ static void do_gather(void) {
     evening_phase();
 }
 
+/**
+ * @brief Fa riposare tutta la squadra recuperando fino a 3 HP per naufrago (entro MAX_HP) e avvia la fase serale.
+ */
 static void do_rest(void) {
     Survivor* curr = team->head;
     while (curr) {
@@ -433,6 +479,9 @@ static void do_rest(void) {
     evening_phase();
 }
 
+/**
+ * @brief Mostra il menu del laboratorio per creare corde, infusi curativi, reti per pesci o cisterne.
+ */
 static void do_lab(void) {
     printf("1. Corda (2 Legna)\n2. Infuso (2 Cibo)\n3. Rete (2 L, 2 C)\n4. Cisterna (4 L, 1 C)\n5. Indietro\nScelta: ");
     int choice = utils_get_int_input();
@@ -454,6 +503,9 @@ static void do_lab(void) {
     printf("Premi INVIO per continuare..."); utils_wait_enter();
 }
 
+/**
+ * @brief Gestisce il ciclo giornaliero dell'accampamento fino alla vittoria, al Game Over o all'abbandono.
+ */
 static void game_camp_menu(void) {
     while (days <= 30 && !squad_is_empty(team) && !game_won) {
         utils_clear_screen();
@@ -490,10 +542,27 @@ static void game_camp_menu(void) {
     printf("Premi INVIO per tornare al menu..."); utils_wait_enter();
 }
 
+/**
+ * @brief Mostra e gestisce il menu dei trucchi per personalizzare parametri iniziali e opzioni speciali.
+ */
 static void do_tricks_menu(void) {
-    while(1) {
+    while (1) {
         utils_clear_screen();
-        printf("1. Imposta HP iniziali (%d)\n2. Imposta N. Naufraghi (%d)\n3. Imposta Risorse\n4. Sblocca tutto (%d)\n5. Indietro\nScelta: ", trick_settings.initial_hp, trick_settings.num_survivors, trick_settings.unlock_final);
+        printf("1. Imposta HP iniziali (%d)\n"
+               "2. Imposta N. Naufraghi (%d)\n"
+               "3. Imposta Risorse (C:%d, A:%d, L:%d, Co:%d)\n"
+               "4. Rivelare la mappa (%s)\n"
+               "5. Sbloccare la missione finale (%s)\n"
+               "6. Indietro\n"
+               "Scelta: ",
+               trick_settings.initial_hp,
+               trick_settings.num_survivors,
+               trick_settings.food,
+               trick_settings.water,
+               trick_settings.wood,
+               trick_settings.rope,
+               trick_settings.reveal_map ? "ATTIVO" : "DISATTIVO",
+               trick_settings.unlock_final ? "ATTIVO" : "DISATTIVO");
         
         int c = utils_get_int_input();
         if (c == 1) { 
@@ -505,13 +574,25 @@ static void do_tricks_menu(void) {
             if (v > 0) trick_settings.num_survivors = v; 
         }
         else if (c == 3) {
-            printf("Cibo: "); int v = utils_get_int_input(); if(v>=0) trick_settings.food = v;
-            printf("Acqua: "); v = utils_get_int_input(); if(v>=0) trick_settings.water = v;
-            printf("Legna: "); v = utils_get_int_input(); if(v>=0) trick_settings.wood = v;
-            printf("Corda: "); v = utils_get_int_input(); if(v>=0) trick_settings.rope = v;
+            printf("Cibo: "); int v = utils_get_int_input(); if (v >= 0) trick_settings.food = v;
+            printf("Acqua: "); v = utils_get_int_input(); if (v >= 0) trick_settings.water = v;
+            printf("Legna: "); v = utils_get_int_input(); if (v >= 0) trick_settings.wood = v;
+            printf("Corda: "); v = utils_get_int_input(); if (v >= 0) trick_settings.rope = v;
         }
-        else if (c == 4) { trick_settings.unlock_final = !trick_settings.unlock_final; trick_settings.reveal_map = trick_settings.unlock_final;}
-        else if (c == 5) { break; }
+        else if (c == 4) {
+            trick_settings.reveal_map = !trick_settings.reveal_map;
+        }
+        else if (c == 5) {
+            trick_settings.unlock_final = !trick_settings.unlock_final;
+        }
+        else if (c == 6) {
+            break;
+        }
+        else {
+            printf("Scelta non valida.\n");
+            printf("Premi INVIO...");
+            utils_wait_enter();
+        }
     }
 }
 
@@ -535,5 +616,10 @@ void game_main_menu(void) {
         else if (strcmp(line, "2\n") == 0) { printf("Crediti: Andrea Grandesso.\n"); printf("Premi INVIO..."); utils_wait_enter(); }
         else if (tricks_unlocked && strcmp(line, "3\n") == 0) { do_tricks_menu(); }
         else if ((tricks_unlocked && strcmp(line, "4\n") == 0) || (!tricks_unlocked && strcmp(line, "3\n") == 0)) { break; }
+        else {
+            printf("Scelta non valida.\n");
+            printf("Premi INVIO...");
+            utils_wait_enter();
+        }
     }
 }

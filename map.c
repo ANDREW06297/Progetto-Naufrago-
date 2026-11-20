@@ -12,6 +12,12 @@ Cell map[MAP_SIZE][MAP_SIZE];
 int camp_r = 4;
 int camp_c = 4;
 
+/**
+ * @brief Funzione ricorsiva di supporto che espande e rivela i sentieri adiacenti (flood fill).
+ * @param r Riga corrente da ispezionare.
+ * @param c Colonna corrente da ispezionare.
+ * @param visited Matrice booleana delle celle gia' visitate dalla ricorsione.
+ */
 static void flood_fill_paths_helper(int r, int c, bool visited[MAP_SIZE][MAP_SIZE]) {
     if (r < 0 || r >= MAP_SIZE || c < 0 || c >= MAP_SIZE) return;
     if (visited[r][c]) return;
@@ -123,6 +129,12 @@ void map_generate(void) {
     }
 }
 
+/**
+ * @brief Restituisce il carattere grafico da stampare per una cella in base a terreno e stato.
+ * @param type Tipologia di terreno della cella.
+ * @param state Stato di visibilita' della cella (HIDDEN, REVEALED o VISITED).
+ * @return Carattere ASCII rappresentativo della cella ('?' se nascosta o non riconosciuta).
+ */
 static char map_get_symbol(TerrainType type, CellState state) {
     if (state == HIDDEN) return '?';
     if (type == CAMP) return '@';
