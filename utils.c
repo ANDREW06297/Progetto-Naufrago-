@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 
 void utils_clear_screen(void) {
 #ifdef _WIN32
@@ -22,16 +25,32 @@ void utils_wait_enter(void) {
     }
 }
 
+bool utils_read_line(char* line, int size) {
+    if (!fgets(line, size, stdin)) exit(0);
+    char* newline = strchr(line, '\n');
+    if (newline) {
+        *newline = '\0';
+        return true;
+    }
+
+    int c = getchar();
+    if (c == '\n' || c == EOF) return true;
+    while (c != '\n' && c != EOF) c = getchar();
+    line[0] = '\0';
+    return false;
+}
+
 int utils_get_int_input(void) {
     char line[64];
-    if (!fgets(line, sizeof(line), stdin)) exit(0); // Gestione sicura EOF
-    
-    int value;
-    char extra;
-    if (sscanf(line, "%d %c", &value, &extra) == 1) {
-        return value;
-    }
-    return -1;
+    if (!utils_read_line(line, sizeof(line))) return -1;
+
+    char* end;
+    errno = 0;
+    long value = strtol(line, &end, 10);
+    if (end == line || errno == ERANGE || value < INT_MIN || value > INT_MAX) return -1;
+    while (isspace((unsigned char)*end)) end++;
+    if (*end != '\0') return -1;
+    return (int)value;
 }
 
 int utils_rand_range(int min, int max) {

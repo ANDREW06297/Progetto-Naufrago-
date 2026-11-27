@@ -18,6 +18,14 @@ void utils_clear_screen(void);
 void utils_wait_enter(void);
 
 /**
+ * @brief Legge una riga senza il carattere finale di nuova linea e scarta eventuali caratteri in eccesso.
+ * @param line Buffer in cui salvare la riga.
+ * @param size Dimensione del buffer.
+ * @return false se la riga e' troppo lunga, true altrimenti. Termina il programma in caso di EOF senza dati.
+ */
+bool utils_read_line(char* line, int size);
+
+/**
  * @brief Legge un intero da standard input gestendo buffer sporchi ed EOF.
  * @return L'intero letto, oppure -1 in caso di input non valido.
  */

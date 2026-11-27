@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 /** @brief Contatore del giorno corrente della partita (da 1 a 30). */
 static int days = 1;
@@ -25,11 +26,34 @@ static TrickSettings trick_settings = {10, 4, 8, 8, 0, 0, false, false};
 /** @brief Codice segreto a 4 cifre (1-9) generato per la missione finale al Faro. */
 static int secret_code_mastermind[4];
 
+/** @brief Indica se la combinazione e' gia' stata generata nella partita corrente. */
+static bool secret_code_generated = false;
+
 /** @brief Flag che indica se il menu trucchi e' stato sbloccato tramite codice Morse. */
 static bool tricks_unlocked = false;
 
 /** @brief Flag che segnala l'avvenuta vittoria al Faro ed evita il falso Game Over. */
 static bool game_won = false;
+
+/** @brief Aggiunge risorse fermandosi al massimo rappresentabile da un intero. */
+static void add_resource(int* resource, int amount) {
+    if (*resource > INT_MAX - amount) *resource = INT_MAX;
+    else *resource += amount;
+}
+
+/** @brief Mostra risorse, oggetti chiave e strutture dell'accampamento. */
+static void print_warehouse(void) {
+    printf("Cibo: %d | Acqua: %d | Legna: %d | Corda: %d\n",
+           warehouse.food, warehouse.water, warehouse.wood, warehouse.rope);
+    printf("Oggetti chiave:");
+    if (warehouse.has_oil) printf(" Olio per la lampada;");
+    if (warehouse.has_lens) printf(" Lente del faro;");
+    if (warehouse.has_key) printf(" Chiave del faro;");
+    if (!warehouse.has_oil && !warehouse.has_lens && !warehouse.has_key) printf(" nessuno");
+    printf("\nRete per pesci: %s | Cisterna: %s | Sorgente scoperta: %s\n",
+           warehouse.net_built ? "Si" : "No", warehouse.cistern_built ? "Si" : "No",
+           warehouse.spring_discovered ? "Si" : "No");
+}
 
 /**
  * @brief Stampa un avviso quando tutti e tre gli oggetti chiave del Faro sono stati raccolti.
@@ -66,12 +90,9 @@ static void setup_new_game(void) {
     
     days = 1;
     game_won = false;
+    secret_code_generated = false;
 
     map_generate();
-
-    for (int i = 0; i < 4; i++) {
-       secret_code_mastermind[i] = utils_rand_range(1, 9);
-    }
     
     if (trick_settings.reveal_map) {
         for (int r = 0; r < MAP_SIZE; r++) {
@@ -121,14 +142,15 @@ static void evening_phase(void) {
     }
 
     if (warehouse.net_built && !squad_is_empty(team)) {
-        warehouse.food++;
+        add_resource(&warehouse.food, 1);
         printf("Effetto Rete per pesci: +1 Cibo.\n");
     }
     if (warehouse.cistern_built && !squad_is_empty(team)) {
-        warehouse.water++;
+        add_resource(&warehouse.water, 1);
         printf("Effetto Cisterna: +1 Acqua.\n");
     }
     days++;
+    printf("Premi INVIO per continuare..."); utils_wait_enter();
 }
 
 /**
@@ -206,9 +228,7 @@ static void do_expedition(void) {
         printf("Seleziona direzione (w, a, s, d, r=rientra): ");
         
         char line[64];
-        if (!fgets(line, sizeof(line), stdin)) exit(0);
-
-        if (line[0] == '\n' || line[1] != '\n') {
+        if (!utils_read_line(line, sizeof(line)) || strlen(line) != 1) {
             printf("Input non valido!\n");
             printf("Premi INVIO per riprovare..."); utils_wait_enter();
             continue;
@@ -252,14 +272,14 @@ static void do_expedition(void) {
                 map_reveal_around_hill(pr, pc);
             } else if (cell->state != VISITED && cell->type == SPRING) {
                 printf("Sorgente scoperta! +4 Acqua.\n");
-                warehouse.water += 4;
+                add_resource(&warehouse.water, 4);
                 warehouse.spring_discovered = true;
             } else if (cell->type == BEACH && cell->state != VISITED) {
                 int roll = utils_rand_range(1, 6);
                 if (roll == 1) { printf("Conchiglie, nulla di utile.\n"); }
-                else if (roll == 2) { printf("Granchi! +2 Cibo.\n"); warehouse.food += 2; }
-                else if (roll == 3) { printf("Legname! +2 Legna.\n"); warehouse.wood += 2; }
-                else if (roll == 4) { printf("Barile! +1 Corda, +1 Cibo.\n"); warehouse.rope++; warehouse.food++; }
+                else if (roll == 2) { printf("Granchi! +2 Cibo.\n"); add_resource(&warehouse.food, 2); }
+                else if (roll == 3) { printf("Legname! +2 Legna.\n"); add_resource(&warehouse.wood, 2); }
+                else if (roll == 4) { printf("Barile! +1 Corda, +1 Cibo.\n"); add_resource(&warehouse.rope, 1); add_resource(&warehouse.food, 1); }
                 else if (roll == 5) {
                     int dmg = utils_rand_range(1, 6);
                     printf("Scogli taglienti! -%d HP.\n", dmg);
@@ -270,8 +290,8 @@ static void do_expedition(void) {
                 }
             } else if (cell->type == FOREST && cell->state != VISITED) {
                 int roll = utils_rand_range(1, 6);
-                if (roll == 1) { printf("Alberi da frutto! +2 Cibo.\n"); warehouse.food += 2; }
-                else if (roll == 2) { printf("Tronchi caduti! +3 Legna.\n"); warehouse.wood += 3; }
+                if (roll == 1) { printf("Alberi da frutto! +2 Cibo.\n"); add_resource(&warehouse.food, 2); }
+                else if (roll == 2) { printf("Tronchi caduti! +3 Legna.\n"); add_resource(&warehouse.wood, 3); }
                 else if (roll == 3) {
                     if (utils_rand_range(0, 1) == 0) printf("Le scimmie scappano.\n");
                     else {
@@ -280,32 +300,36 @@ static void do_expedition(void) {
                     }
                 } else if (roll == 4) {
                     if (combat_encounter(explorer, 3, 2, "Cinghiale")) {
-                        warehouse.food += 4;
+                        add_resource(&warehouse.food, 4);
                         printf("+4 Cibo ottenuti.\n");
                     }
                 } else if (roll == 5) {
                     combat_encounter(explorer, 3, 3, "Serpente");
                 } else if (roll == 6) {
                     printf("Rovi! -2 HP, +1 Legna.\n");
-                    explorer->hp -= 2; warehouse.wood++;
+                    explorer->hp -= 2; add_resource(&warehouse.wood, 1);
                 }
             } else if (cell->type == SWAMP && cell->state != VISITED) {
                 int roll = utils_rand_range(1, 6);
                 if (roll <= 2) { printf("Sanguisughe! -2 HP.\n"); explorer->hp -= 2; }
-                else { printf("+1 Cibo trovato.\n"); warehouse.food++; }
+                else { printf("+1 Cibo trovato.\n"); add_resource(&warehouse.food, 1); }
             } else if (cell->type == WRECK && !warehouse.has_oil) {
                 printf("Relitto instabile! -2 HP.\n");
                 explorer->hp -= 2;
                 if (explorer->hp > 0) {
                     printf("Ottieni l'Olio e +3 Legna.\n");
                     warehouse.has_oil = true;
-                    warehouse.wood += 3;
+                    add_resource(&warehouse.wood, 3);
                     check_key_items_message();
                 }
             } else if (cell->type == CAVE && !warehouse.has_lens) {
                 int num = utils_rand_range(1, 500);
-                printf("Grotta: il numero %d appartiene a Tribonacci? [1=Si / 0=No]: ", num);
-                int ans = utils_get_int_input();
+                int ans;
+                do {
+                    printf("Grotta: il numero %d appartiene a Tribonacci? [1=Si / 0=No]: ", num);
+                    ans = utils_get_int_input();
+                    if (ans != 0 && ans != 1) printf("Risposta non valida: inserisci 1 oppure 0.\n");
+                } while (ans != 0 && ans != 1);
                 bool is_trib = check_tribonacci(num);
                 if ((ans == 1 && is_trib) || (ans == 0 && !is_trib)) {
                     printf("Corretto! Ottieni la Lente.\n");
@@ -319,40 +343,40 @@ static void do_expedition(void) {
                 if (combat_encounter(explorer, 4, 4, "Giaguaro")) {
                     printf("Ottieni la Chiave e +4 Cibo.\n");
                     warehouse.has_key = true;
-                    warehouse.food += 4;
+                    add_resource(&warehouse.food, 4);
                     check_key_items_message();
                 }
             } else if (cell->type == LIGHTHOUSE) {
+                cell->state = VISITED;
                 if (!warehouse.has_oil || !warehouse.has_lens || !warehouse.has_key || warehouse.wood < 10) {
                     printf("Materiali insufficienti per il Faro (servono 3 Oggetti e 10 Legna).\n");
                 } else {
                     printf("\n*** MISSIONE FINALE: MASTERMIND ***\n");
+                    if (!secret_code_generated) {
+                        for (int i = 0; i < 4; i++) secret_code_mastermind[i] = utils_rand_range(1, 9);
+                        secret_code_generated = true;
+                    }
                     warehouse.wood -= 10;
                     
                     bool won = false;
                     for (int t = 1; t <= 8; t++) {
                         printf("\nTentativo %d/8. Inserisci 4 cifre (1-9): ", t);
                         char input_line[100];
-                        if (!fgets(input_line, sizeof(input_line), stdin)) exit(0);
-
-                        int digits[4], dummy;
-                        int parsed = sscanf(input_line, "%d %d %d %d %d", &digits[0], &digits[1], &digits[2], &digits[3], &dummy);
-                        
-                        if (parsed != 4) {
-                            char raw[10];
-                            if (sscanf(input_line, "%9s", raw) == 1 && strlen(raw) == 4) {
-                                parsed = 0;
-                                for (int k = 0; k < 4; k++) {
-                                    if (raw[k] >= '1' && raw[k] <= '9') {
-                                        digits[k] = raw[k] - '0';
-                                        parsed++;
-                                    }
+                        bool valid = utils_read_line(input_line, sizeof(input_line));
+                        int digits[4], parsed = 0;
+                        if (valid) {
+                            for (int k = 0; input_line[k] != '\0'; k++) {
+                                if (isspace((unsigned char)input_line[k])) continue;
+                                if (input_line[k] < '1' || input_line[k] > '9' || parsed == 4) {
+                                    valid = false;
+                                    break;
                                 }
+                                digits[parsed++] = input_line[k] - '0';
                             }
                         }
 
-                        if (parsed != 4) {
-                            printf("Errore: devi inserire ESATTAMENTE 4 cifre.\n");
+                        if (!valid || parsed != 4) {
+                            printf("Errore: devi inserire ESATTAMENTE 4 cifre da 1 a 9.\n");
                             t--; continue;
                         }
 
@@ -398,16 +422,13 @@ static void do_expedition(void) {
                         printf("\nPremi INVIO per terminare..."); utils_wait_enter();
                         return; // Esce direttamente dalla spedizione
                     } else {
-                        printf("Tentativi esauriti! Le legna si sono spente.\n");
+                        printf("Tentativi esauriti! Le legna si sono spente. Rientri al campo.\n");
+                        break;
                     }
                 }
             }
 
-            if (cell->type != LIGHTHOUSE && cell->type != CAVE && cell->type != LAIR && cell->type != WRECK) {
-                cell->state = VISITED;
-            } else if (cell->type == WRECK && warehouse.has_oil) cell->state = VISITED;
-            else if (cell->type == CAVE && warehouse.has_lens) cell->state = VISITED;
-            else if (cell->type == LAIR && warehouse.has_key) cell->state = VISITED;
+            cell->state = VISITED;
         }
 
         if (explorer->hp > 0) {
@@ -415,6 +436,7 @@ static void do_expedition(void) {
         } else {
             printf("\nNaufrago %d morto in spedizione!\n", explorer->id);
             squad_remove_member(team, explorer->id);
+            explorer = NULL;
             printf("Premi INVIO per continuare..."); utils_wait_enter();
             break;
         }
@@ -437,26 +459,24 @@ static void do_expedition(void) {
 static void do_gather(void) {
     if (squad_is_empty(team)) return;
     Survivor* curr = team->head;
-    bool gathered = false;
 
     while (curr) {
         if (curr->hp >= 3) {
-            gathered = true;
             int roll = utils_rand_range(1, 6);
             if (roll == 1) { curr->hp -= 2; printf("N.%d ferito (-2 HP)\n", curr->id); }
-            else if (roll == 2) { warehouse.wood += 2; printf("N.%d: +2 Legna\n", curr->id); }
-            else if (roll == 3) { warehouse.food += 2; printf("N.%d: +2 Cibo\n", curr->id); }
-            else if (roll == 4) { warehouse.water += 2; printf("N.%d: +2 Acqua\n", curr->id); }
-            else if (roll == 5) { warehouse.food++; warehouse.water++; printf("N.%d: +1 Cibo, +1 Acqua\n", curr->id); }
-            else if (roll == 6) { warehouse.food += 2; warehouse.water += 2; printf("N.%d: +2 Cibo, +2 Acqua\n", curr->id); }
+            else if (roll == 2) { add_resource(&warehouse.wood, 2); printf("N.%d: +2 Legna\n", curr->id); }
+            else if (roll == 3) { add_resource(&warehouse.food, 2); printf("N.%d: +2 Cibo\n", curr->id); }
+            else if (roll == 4) { add_resource(&warehouse.water, 2); printf("N.%d: +2 Acqua\n", curr->id); }
+            else if (roll == 5) { add_resource(&warehouse.food, 1); add_resource(&warehouse.water, 1); printf("N.%d: +1 Cibo, +1 Acqua\n", curr->id); }
+            else if (roll == 6) { add_resource(&warehouse.food, 2); add_resource(&warehouse.water, 2); printf("N.%d: +2 Cibo, +2 Acqua\n", curr->id); }
         } else {
             printf("N.%d (HP:%d) troppo debole per raccogliere.\n", curr->id, curr->hp);
         }
         curr = curr->next;
     }
 
-    if (gathered && warehouse.spring_discovered) {
-        warehouse.water += 2;
+    if (warehouse.spring_discovered) {
+        add_resource(&warehouse.water, 2);
         printf("Sorgente: +2 Acqua bonus complessive.\n");
     }
 
@@ -485,7 +505,7 @@ static void do_rest(void) {
 static void do_lab(void) {
     printf("1. Corda (2 Legna)\n2. Infuso (2 Cibo)\n3. Rete (2 L, 2 C)\n4. Cisterna (4 L, 1 C)\n5. Indietro\nScelta: ");
     int choice = utils_get_int_input();
-    if (choice == 1 && warehouse.wood >= 2) { warehouse.wood -= 2; warehouse.rope++; printf("Corda creata.\n"); }
+    if (choice == 1 && warehouse.wood >= 2) { warehouse.wood -= 2; add_resource(&warehouse.rope, 1); printf("Corda creata.\n"); }
     else if (choice == 2 && warehouse.food >= 2) {
         printf("ID naufrago: "); int id = utils_get_int_input();
         Survivor* t = squad_find_member(team, id);
@@ -510,17 +530,23 @@ static void game_camp_menu(void) {
     while (days <= 30 && !squad_is_empty(team) && !game_won) {
         utils_clear_screen();
         printf("=== Giorno %d/30 | Vivi: %d ===\n", days, squad_count(team));
+        print_warehouse();
         printf("1. Spedizione\n2. Raccogli\n3. Riposa\n4. Magazzino/Squadra\n5. Laboratorio\n6. Abbandona\nScelta: ");
         
         int choice = utils_get_int_input();
         if (choice == 1) do_expedition();
         else if (choice == 2) do_gather();
         else if (choice == 3) do_rest();
-        else if (choice == 4) { squad_print_status(team); printf("Premi INVIO..."); utils_wait_enter(); }
+        else if (choice == 4) { print_warehouse(); squad_print_status(team); printf("Premi INVIO..."); utils_wait_enter(); }
         else if (choice == 5) do_lab();
         else if (choice == 6) {
-            printf("Uscire? [1=Si/0=No]: ");
-            if (utils_get_int_input() == 1) { squad_cleanup(team); team = NULL; return; }
+            int confirm;
+            do {
+                printf("Stai lasciando l'isola: perderai tutti i progressi. Sei sicuro? [1=Si/0=No]: ");
+                confirm = utils_get_int_input();
+                if (confirm != 0 && confirm != 1) printf("Risposta non valida.\n");
+            } while (confirm != 0 && confirm != 1);
+            if (confirm == 1) { squad_cleanup(team); team = NULL; return; }
         } else {
             printf("Scelta non valida.\n"); printf("Premi INVIO..."); utils_wait_enter();
         }
@@ -597,6 +623,8 @@ static void do_tricks_menu(void) {
 }
 
 void game_main_menu(void) {
+    const char* morse_code = "...---...";
+    int morse_index = 0;
     while (1) {
         utils_clear_screen();
         printf("1. Nuova partita\n2. Crediti\n");
@@ -604,18 +632,24 @@ void game_main_menu(void) {
         else printf("3. Esci\nScelta: ");
 
         char line[64];
-        if (!fgets(line, sizeof(line), stdin)) exit(0);
+        bool valid = utils_read_line(line, sizeof(line));
 
-        if (strstr(line, "...---...")) {
-            tricks_unlocked = true;
-            printf("TRUCCHI SBLOCCATI!\n"); printf("Premi INVIO..."); utils_wait_enter();
+        if (valid && !tricks_unlocked && strlen(line) == 1 && (line[0] == '.' || line[0] == '-')) {
+            if (line[0] == morse_code[morse_index]) morse_index++;
+            else morse_index = 0;
+            if (morse_index == 9) {
+                tricks_unlocked = true;
+                morse_index = 0;
+                printf("TRUCCHI SBLOCCATI!\n"); printf("Premi INVIO..."); utils_wait_enter();
+            }
             continue;
         }
+        morse_index = 0;
 
-        if (strcmp(line, "1\n") == 0) { setup_new_game(); game_camp_menu(); }
-        else if (strcmp(line, "2\n") == 0) { printf("Crediti: Andrea Grandesso.\n"); printf("Premi INVIO..."); utils_wait_enter(); }
-        else if (tricks_unlocked && strcmp(line, "3\n") == 0) { do_tricks_menu(); }
-        else if ((tricks_unlocked && strcmp(line, "4\n") == 0) || (!tricks_unlocked && strcmp(line, "3\n") == 0)) { break; }
+        if (valid && strcmp(line, "1") == 0) { setup_new_game(); game_camp_menu(); }
+        else if (valid && strcmp(line, "2") == 0) { printf("Crediti: Andrea Grandesso.\n"); printf("Premi INVIO..."); utils_wait_enter(); }
+        else if (valid && tricks_unlocked && strcmp(line, "3") == 0) { do_tricks_menu(); }
+        else if (valid && ((tricks_unlocked && strcmp(line, "4") == 0) || (!tricks_unlocked && strcmp(line, "3") == 0))) { break; }
         else {
             printf("Scelta non valida.\n");
             printf("Premi INVIO...");
